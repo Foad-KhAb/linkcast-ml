@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "linkcast-ml"
+version = "0.1.0"
+description = "Predict seven-day purchase conversion counts from link creation data."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "catboost>=1.2.8,<2",
+    "numpy>=2,<3",
+    "pandas>=2.2,<3",
+    "scikit-learn>=1.6,<2",
+]
+
+[project.scripts]
+linkcast = "linkcast.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/linkcast"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
