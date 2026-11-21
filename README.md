@@ -38,7 +38,6 @@ uv run --locked python -c "import linkcast, catboost, numpy, pandas, sklearn; pr
 
 ```text
 src/linkcast/      Reusable package, schema, and CLI
-docs/             Dataset contract and ML semantics
 examples/         Hand-written fictional schema examples
 tests/            Schema and CLI checks
 pyproject.toml    Package metadata, dependencies, and tool settings
@@ -52,10 +51,21 @@ development tools. No GPU or application database is required.
 
 ## Dataset contract
 
-Read [dataset schema v1](docs/dataset-v1.md) for entity relationships, column
-definitions, the initial feature allowlist, label maturity, and missingness rules.
-One row describes one link at creation. A 24-hour-old link can remain in the
-dataset with partial observations and a null seven-day target.
+Dataset schema 1.0 is defined and validated in `src/linkcast/schema.py`. Data is
+stored as UTF-8 JSON Lines, one flat object per link. The main rules:
+
+- One row per link, predicted at `created_at` using only information available
+  by then (`features_available_at <= created_at`).
+- The target `purchase_conversions_7d` counts approved purchase conversions in
+  `[created_at, created_at + 168 hours)`.
+- `label_status` is `ready` (complete tracking, label available after the window
+  and reporting delay), `pending`, or `unknown`. Pending and unknown rows keep a
+  null target. A 24-hour-old link stays in the dataset with partial observations,
+  not a completed label.
+- Unknown values are `null` and are never treated as zero. Unmeasured post views
+  and unknown tracking coverage are not zero views or zero conversions.
+- Model inputs come from an explicit allowlist (`DEFAULT_FEATURES`); labels and
+  audit fields are never inputs. Unknown columns are rejected.
 
 ```sh
 uv run --locked linkcast validate examples/link_rows_v1.jsonl
