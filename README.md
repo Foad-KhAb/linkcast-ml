@@ -7,8 +7,9 @@ A prediction may be fractional because it represents an expected count.
 ## Current status
 
 Implemented so far: standalone package and environment, versioned link
-dataset contract, validation CLI, fictional example rows, and tests.
-Generation, training, evaluation, and prediction are not implemented yet.
+dataset contract, validation CLI, fictional example rows, a deterministic
+synthetic data generator, and tests. Training, evaluation, and prediction are
+not implemented yet.
 
 ## Install and run
 
@@ -37,9 +38,9 @@ uv run --locked python -c "import linkcast, catboost, numpy, pandas, sklearn; pr
 ## Layout
 
 ```text
-src/linkcast/      Reusable package, schema, and CLI
+src/linkcast/      Reusable package, schema, generator, and CLI
 examples/         Hand-written fictional schema examples
-tests/            Schema and CLI checks
+tests/            Schema, generator, and CLI checks
 pyproject.toml    Package metadata, dependencies, and tool settings
 uv.lock           Exact dependency resolution
 .python-version   Python version for the local environment
@@ -75,3 +76,35 @@ The three fictional examples contain one completed zero, one pending label, and
 one unknown label. They demonstrate the contract; they are not generated training
 data. Creation-time model inputs explicitly exclude partial outcomes and audit
 fields.
+
+## Synthetic data
+
+```sh
+uv run --locked linkcast generate            # writes data/synthetic/ (seed 7)
+uv run --locked linkcast validate data/synthetic/link_rows.jsonl
+```
+
+The same seed always produces identical output. The default run simulates 20
+stores, 80 publishers, 150 media, and about 20,000 links over 182 days. Some
+stores and media first appear late in the period so later evaluation can test
+unseen entities. `--seed`, `--days`, and `--media` change the run.
+
+The output directory (ignored by Git) contains:
+
+- `sources/`: fictional source tables (stores, media, campaigns, creatives,
+  landings, links, posts, post-link associations, view and audience
+  observations, conversions, tracking reviews), each with occurrence,
+  measurement, or receipt timestamps.
+- `link_rows.jsonl`: one schema-1.0 row per link. Features use only source
+  records available at link creation; labels use only matured, reviewed windows
+  with complete tracking.
+- `truth/`: hidden simulator variables, such as media quality and each link's
+  expected seven-day count. They drive the simulation but never appear in
+  sources or link rows; they are for checking the pipeline, not for training.
+- `manifest.json`: configuration, generator version, and row counts.
+
+Conversions follow a negative binomial (gamma-Poisson) process: most links get
+zero or a few conversions and a few get many. Some post views are unmeasured,
+some links have tracking outages or unverified coverage (label `unknown`), and
+recent links remain `pending` with partial counts. Synthetic results show that
+the pipeline behaves correctly; they say nothing about real business value.
