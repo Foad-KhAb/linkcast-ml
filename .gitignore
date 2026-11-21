@@ -24,3 +24,10 @@ htmlcov/
 /artifacts/
 /runs/
 /catboost_info/
+
+# Local decision notes
+/notes/
+
+# Local docs and agent guidance
+/docs/
+/AGENTS.md
