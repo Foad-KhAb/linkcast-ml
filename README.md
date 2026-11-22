@@ -48,7 +48,7 @@ uv.lock           Exact dependency resolution
 
 The ML dependencies are CatBoost for CPU tabular modeling, pandas and NumPy for
 data handling, and scikit-learn for evaluation utilities. Ruff and pytest are
-development tools. No GPU or application database is required.
+development tools. No GPU or application database is required; everything runs on a laptop CPU.
 
 ## Dataset contract
 
