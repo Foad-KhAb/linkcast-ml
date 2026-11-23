@@ -8,8 +8,8 @@ A prediction may be fractional because it represents an expected count.
 
 Implemented so far: standalone package and environment, versioned link
 dataset contract, validation CLI, fictional example rows, a deterministic
-synthetic data generator, dataset inspection report, and tests. Training,
-evaluation, and prediction are not implemented yet.
+synthetic data generator, dataset inspection report, chronological splits, and
+tests. Training, evaluation, and prediction are not implemented yet.
 
 ## Install and run
 
@@ -38,9 +38,9 @@ uv run --locked python -c "import linkcast, catboost, numpy, pandas, sklearn; pr
 ## Layout
 
 ```text
-src/linkcast/      Reusable package, schema, generator, inspection, and CLI
+src/linkcast/      Reusable package, schema, generator, inspection, splits, and CLI
 examples/         Hand-written fictional schema examples
-tests/            Schema, generator, inspection, and CLI checks
+tests/            Schema, generator, inspection, split, and CLI checks
 pyproject.toml    Package metadata, dependencies, and tool settings
 uv.lock           Exact dependency resolution
 .python-version   Python version for the local environment
@@ -129,3 +129,28 @@ Run this before splitting or training. The report shows:
 
 Failing checks make the command exit with status 1; warnings are for review.
 The report reads only link rows, never `truth/`.
+
+## Chronological splits
+
+```sh
+uv run --locked linkcast split data/synthetic/link_rows.jsonl
+```
+
+This writes `splits.csv` next to the dataset, with one row per link. Defaults
+match the default synthetic dataset and can be changed with `--train-cutoff`,
+`--validation-end`, and `--test-end` (UTC dates):
+
+| Set | Rule (defaults) | Use |
+| --- | --- | --- |
+| `train` | label available by 2026-05-01 | Fit models compared on validation |
+| `validation` | ready label, created 2026-05-01 to 2026-05-31 | Compare and tune models |
+| `in_final_train` | label available by 2026-06-01 | Refit once before testing |
+| `test` | ready label, created 2026-06-01 to 2026-06-22 | Final score, used once |
+| `excluded` | everything else, with a reason | Never fitted or scored |
+
+Training eligibility depends on when the label became **available**, not on
+when the link was created. Links created in the roughly ten days before a
+cutoff are excluded (`label_after_cutoff`) because their seven-day outcomes were
+not known yet. Pending and unknown labels are never trained on or scored.
+Validation and test rows are flagged when their store, media, campaign, or
+creative never appears in their training set.
