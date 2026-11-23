@@ -8,8 +8,9 @@ A prediction may be fractional because it represents an expected count.
 
 Implemented so far: standalone package and environment, versioned link
 dataset contract, validation CLI, fictional example rows, a deterministic
-synthetic data generator, dataset inspection report, chronological splits, and
-tests. Training, evaluation, and prediction are not implemented yet.
+synthetic data generator, dataset inspection report, chronological splits, a
+historical-mean baseline, and tests. The CatBoost model, final evaluation, and
+prediction are not implemented yet.
 
 ## Install and run
 
@@ -38,9 +39,9 @@ uv run --locked python -c "import linkcast, catboost, numpy, pandas, sklearn; pr
 ## Layout
 
 ```text
-src/linkcast/      Reusable package, schema, generator, inspection, splits, and CLI
+src/linkcast/      Package: schema, generator, inspection, splits, baseline, CLI
 examples/         Hand-written fictional schema examples
-tests/            Schema, generator, inspection, split, and CLI checks
+tests/            Tests for each module and the CLI
 pyproject.toml    Package metadata, dependencies, and tool settings
 uv.lock           Exact dependency resolution
 .python-version   Python version for the local environment
@@ -154,3 +155,27 @@ cutoff are excluded (`label_after_cutoff`) because their seven-day outcomes were
 not known yet. Pending and unknown labels are never trained on or scored.
 Validation and test rows are flagged when their store, media, campaign, or
 creative never appears in their training set.
+
+## Historical-mean baseline
+
+```sh
+uv run --locked linkcast baseline data/synthetic/link_rows.jsonl
+```
+
+The baseline predicts a link's expected seven-day count from training-set
+averages, falling back from media to store to platform to the global mean when
+a group is absent. Each level is smoothed toward the level above:
+
+```text
+estimate = (group conversions + k * parent estimate) / (group links + k)
+```
+
+so a media with few links stays close to its store's estimate. The command
+fits on `train`, scores `validation`, and reports MAE and bias (mean prediction
+minus mean actual) for the default `k` (10), every `k` in `--grid`, and the
+best one. It also reports constant train-mean and train-median predictions and
+the MAE by fallback level. The test split is not read.
+
+MAE is minimized by a median, whereas this baseline predicts means. On skewed
+counts, a constant median can therefore beat an informative mean-based model
+on MAE alone.
