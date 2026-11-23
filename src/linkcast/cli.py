@@ -7,6 +7,9 @@ from collections import Counter
 from pathlib import Path
 
 from linkcast import __version__
+from linkcast.artifact import load as load_artifact
+from linkcast.artifact import predict_rows, train_deployment
+from linkcast.artifact import save as save_artifact
 from linkcast.baseline import DEFAULT_K, K_GRID
 from linkcast.baseline import evaluate as evaluate_baseline
 from linkcast.baseline import format_report as format_baseline
@@ -100,6 +103,20 @@ def main() -> None:
     evaluate.add_argument("dataset", help="Path to the JSONL file")
     evaluate.add_argument("--json", help="Also write the report as JSON")
     _add_split_dates(evaluate)
+    save = commands.add_parser(
+        "save", help="Train the chosen model on all available labels and save it"
+    )
+    save.add_argument("dataset", help="Path to the JSONL file")
+    save.add_argument(
+        "--out", default="artifacts/linkcast-model", help="Artifact directory"
+    )
+    _add_split_dates(save)
+    predict_cmd = commands.add_parser(
+        "predict", help="Predict expected seven-day conversions for link rows"
+    )
+    predict_cmd.add_argument("artifact", help="Artifact directory from `save`")
+    predict_cmd.add_argument("dataset", help="Schema-v1 JSONL rows at link creation")
+    predict_cmd.add_argument("--out", help="CSV path (default: print to stdout)")
     generate = commands.add_parser(
         "generate", help="Generate deterministic fictional source data and link rows"
     )
@@ -174,6 +191,38 @@ def main() -> None:
         print(format_evaluation(report))
         if args.json:
             Path(args.json).write_text(json.dumps(report, indent=2) + "\n")
+    elif args.command == "save":
+        try:
+            rows = read_dataset(args.dataset)
+            config = SplitConfig(args.train_cutoff, args.validation_end, args.test_end)
+        except (OSError, SchemaError, ValueError) as error:
+            parser.exit(2, f"Save failed: {error}\n")
+        manifest_path = Path(args.dataset).with_name("manifest.json")
+        manifest = (
+            json.loads(manifest_path.read_text()) if manifest_path.exists() else None
+        )
+        model, metadata = train_deployment(rows, config, manifest=manifest)
+        out = save_artifact(model, metadata, args.out)
+        print(
+            f"Saved {metadata['feature_set']} model "
+            f"({len(metadata['features'])} features) to {out}"
+        )
+        print(
+            f"Trained on {metadata['training_links']} links with labels available "
+            f"by {metadata['training_cutoff']}"
+        )
+    elif args.command == "predict":
+        try:
+            model, metadata = load_artifact(args.artifact)
+            rows = read_dataset(args.dataset)
+        except (OSError, SchemaError, ValueError) as error:
+            parser.exit(2, f"Prediction failed: {error}\n")
+        predictions = predict_rows(model, metadata, rows)
+        if args.out:
+            predictions.to_csv(args.out, index=False)
+            print(f"Wrote {len(predictions)} predictions to {args.out}")
+        else:
+            print(predictions.to_string(index=False))
     elif args.command == "generate":
         try:
             config = GeneratorConfig(seed=args.seed, days=args.days, n_media=args.media)
