@@ -9,8 +9,9 @@ A prediction may be fractional because it represents an expected count.
 Implemented so far: standalone package and environment, versioned link
 dataset contract, validation CLI, fictional example rows, a deterministic
 synthetic data generator, dataset inspection report, chronological splits, a
-historical-mean baseline, and tests. The CatBoost model, final evaluation, and
-prediction are not implemented yet.
+historical-mean baseline, a CatBoost count model compared on validation, and
+tests. Final test evaluation, saved models, and prediction are not implemented
+yet.
 
 ## Install and run
 
@@ -39,7 +40,7 @@ uv run --locked python -c "import linkcast, catboost, numpy, pandas, sklearn; pr
 ## Layout
 
 ```text
-src/linkcast/      Package: schema, generator, inspection, splits, baseline, CLI
+src/linkcast/      Package: schema, generator, inspection, splits, metrics, models, CLI
 examples/         Hand-written fictional schema examples
 tests/            Tests for each module and the CLI
 pyproject.toml    Package metadata, dependencies, and tool settings
@@ -171,11 +172,38 @@ estimate = (group conversions + k * parent estimate) / (group links + k)
 ```
 
 so a media with few links stays close to its store's estimate. The command
-fits on `train`, scores `validation`, and reports MAE and bias (mean prediction
-minus mean actual) for the default `k` (10), every `k` in `--grid`, and the
-best one. It also reports constant train-mean and train-median predictions and
-the MAE by fallback level. The test split is not read.
+fits on `train`, scores `validation`, and reports every score below for the
+default `k` (10), every `k` in `--grid`, and the one with the lowest Poisson
+deviance. It also reports constant train-mean and train-median predictions and
+scores by fallback level. The test split is not read.
 
 MAE is minimized by a median, whereas this baseline predicts means. On skewed
 counts, a constant median can therefore beat an informative mean-based model
 on MAE alone.
+
+## Scores
+
+Predictions are expected counts, used to estimate total conversions. Every
+model is scored with:
+
+| Score | Meaning |
+| --- | --- |
+| MAE | Mean absolute error in conversions per link |
+| Poisson deviance | Quality of predicted averages for counts; lower is better; used to choose settings |
+| Bias | Mean prediction minus mean actual; near zero means totals are not systematically off |
+| Total error | \|predicted total - actual total\| / actual total, overall and summed per store and per campaign |
+
+## CatBoost model
+
+```sh
+uv run --locked linkcast train data/synthetic/link_rows.jsonl
+```
+
+This trains CatBoost with Poisson loss on two feature sets: the default 10
+creation-time inputs and all 29 allowed candidates. For each set it tries tree
+depths 4, 6, and 8 with learning rates 0.03 and 0.1, uses early stopping on
+validation to choose the number of trees, and keeps the setting with the lowest
+validation Poisson deviance. Identity fields are categorical; unknown
+categories become an explicit missing category and unknown numbers stay
+missing. The report compares both models with the baseline and lists feature
+importances. The test split is not read. A run takes about a minute on a CPU.

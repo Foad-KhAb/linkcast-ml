@@ -9,7 +9,7 @@ group's own training mean with the estimate from the level above:
 A group with few links stays close to its parent (shrinkage); a group with many
 links mostly uses its own mean. Groups absent from training keep the parent
 estimate, which is how new media or stores fall back. ``k`` is the only
-hyperparameter; it is chosen on validation, never on test.
+hyperparameter; it is chosen by validation Poisson deviance, never on test.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+from linkcast.metrics import score, score_header, score_line
 from linkcast.schema import TARGET, LinkRow
 from linkcast.splits import SplitConfig, assign_splits
 
@@ -75,21 +76,11 @@ def link_frame(rows: list[LinkRow], config: SplitConfig) -> pd.DataFrame:
             "platform": [row.platform for row in rows],
             "store_id": [row.store_id for row in rows],
             "media_id": [row.media_id for row in rows],
+            "campaign_id": [row.campaign_id for row in rows],
             TARGET: [row.purchase_conversions_7d for row in rows],
         }
     ).set_index("link_id")
     return frame.join(splits[["split", "in_final_train"]])
-
-
-def _scores(actual: pd.Series, predicted: pd.Series) -> dict:
-    error = predicted - actual
-    return {
-        "links": int(len(actual)),
-        "mae": round(float(error.abs().mean()), 4),
-        "bias": round(float(error.mean()), 4),
-        "mean_prediction": round(float(predicted.mean()), 4),
-        "mean_actual": round(float(actual.mean()), 4),
-    }
 
 
 def evaluate(
@@ -109,6 +100,10 @@ def evaluate(
     if train.empty or validation.empty:
         raise ValueError("train and validation splits must both contain links")
     actual = validation[TARGET].astype(float)
+
+    def scores(predicted, rows=validation):
+        return score(actual.loc[rows.index], predicted, rows)
+
     train_target = train[TARGET].astype(float)
 
     references = {
@@ -117,18 +112,19 @@ def evaluate(
     }
     for name, reference in references.items():
         constant = pd.Series(reference["value"], index=validation.index)
-        reference |= _scores(actual, constant)
+        reference |= scores(constant)
 
     tuning = []
     for value in sorted(set(grid) | {k}):
         predicted = HistoricalMeanBaseline(value).fit(train).predict(validation)
-        tuning.append({"k": value} | _scores(actual, predicted.prediction))
-    best = min(tuning, key=lambda result: (result["mae"], result["k"]))
+        tuning.append({"k": value} | scores(predicted.prediction))
+    # Budgeting needs good averages, so k is chosen by Poisson deviance, not MAE.
+    best = min(tuning, key=lambda result: (result["poisson_deviance"], result["k"]))
     default = next(result for result in tuning if result["k"] == k)
 
     chosen = HistoricalMeanBaseline(best["k"]).fit(train).predict(validation)
     by_level = {
-        level: _scores(actual[chosen.level_used == level], part.prediction)
+        level: scores(part.prediction, validation.loc[part.index])
         for level, part in chosen.groupby("level_used")
     }
     return {
@@ -146,46 +142,42 @@ def evaluate(
 
 def format_report(report: dict) -> str:
     default, tuned = report["default"], report["tuned"]
+    width = 32
     lines = [
         "Historical-mean baseline (fallback: media -> store -> platform -> global)",
         f"  fitted on train ({report['train_links']} links), "
         f"scored on validation ({report['validation_links']} links); test untouched",
+        "  k is chosen by Poisson deviance (quality of predicted averages)",
         "",
-        f"  {'validation':<38} {'MAE':>7} {'bias':>8}",
+        score_header(width),
     ]
     for name, reference in report["references"].items():
         label = f"predict {name.replace('_', ' ')} ({reference['value']:g})"
-        lines.append(
-            f"  {label:<38} {reference['mae']:>7.4f} {reference['bias']:>+8.4f}"
-        )
-    lines.append(
-        f"  {f'baseline, default k={default["k"]:g}':<38} "
-        f"{default['mae']:>7.4f} {default['bias']:>+8.4f}"
-    )
-    lines.append(
-        f"  {f'baseline, tuned k={tuned["k"]:g}':<38} "
-        f"{tuned['mae']:>7.4f} {tuned['bias']:>+8.4f}"
-    )
-    lines += ["", "Tuning k on validation", f"  {'k':>6} {'MAE':>8} {'bias':>8}"]
+        lines.append(score_line(label, reference, width))
+    lines.append(score_line(f"baseline, default k={default['k']:g}", default, width))
+    lines.append(score_line(f"baseline, tuned k={tuned['k']:g}", tuned, width))
+    lines += ["", "Tuning k on validation", score_header(width)]
     for result in report["tuning"]:
-        marker = "  <- best" if result == tuned else ""
-        lines.append(
-            f"  {result['k']:>6g} {result['mae']:>8.4f} {result['bias']:>+8.4f}{marker}"
-        )
+        marker = "k={:g}{}".format(result["k"], "  <- best" if result == tuned else "")
+        lines.append(score_line(marker, result, width))
     lines += [
         "",
         f"By fallback level used (tuned k={tuned['k']:g})",
-        f"  {'level':<10} {'links':>6} {'MAE':>8} {'mean pred':>10} {'mean actual':>12}",
+        f"  {'level':<10} {'links':>6} {'MAE':>8} {'deviance':>9} "
+        f"{'mean pred':>10} {'mean actual':>12}",
     ]
     for level in ("media", "store", "platform", "global"):
         if level in report["by_level_tuned"]:
             s = report["by_level_tuned"][level]
             lines.append(
                 f"  {level:<10} {s['links']:>6} {s['mae']:>8.4f} "
+                f"{s['poisson_deviance']:>9.4f} "
                 f"{s['mean_prediction']:>10.4f} {s['mean_actual']:>12.4f}"
             )
     lines += [
         "",
+        "Totals: |predicted - actual| conversions summed overall, per store, and",
+        "per campaign, as a share of actual conversions (budgeting accuracy).",
         f"For the test, refit with k={tuned['k']:g} on the final training set "
         f"({report['final_train_links']} links) and score once (step 8).",
     ]

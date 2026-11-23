@@ -13,6 +13,8 @@ from linkcast.baseline import format_report as format_baseline
 from linkcast.generate import GeneratorConfig, write
 from linkcast.generate import generate as generate_data
 from linkcast.inspection import format_report, has_failures, inspect_rows
+from linkcast.model import evaluate as evaluate_model
+from linkcast.model import format_report as format_model_report
 from linkcast.schema import SCHEMA_VERSION, SchemaError, read_dataset
 from linkcast.splits import (
     SplitConfig,
@@ -84,6 +86,12 @@ def main() -> None:
     )
     baseline.add_argument("--json", help="Also write the report as JSON")
     _add_split_dates(baseline)
+    train = commands.add_parser(
+        "train", help="Tune CatBoost on validation and compare with the baseline"
+    )
+    train.add_argument("dataset", help="Path to the JSONL file")
+    train.add_argument("--json", help="Also write the report as JSON")
+    _add_split_dates(train)
     generate = commands.add_parser(
         "generate", help="Generate deterministic fictional source data and link rows"
     )
@@ -136,6 +144,16 @@ def main() -> None:
         except (OSError, SchemaError, ValueError) as error:
             parser.exit(2, f"Baseline failed: {error}\n")
         print(format_baseline(report))
+        if args.json:
+            Path(args.json).write_text(json.dumps(report, indent=2) + "\n")
+    elif args.command == "train":
+        try:
+            rows = read_dataset(args.dataset)
+            config = SplitConfig(args.train_cutoff, args.validation_end, args.test_end)
+        except (OSError, SchemaError, ValueError) as error:
+            parser.exit(2, f"Training failed: {error}\n")
+        report = evaluate_model(rows, config)
+        print(format_model_report(report))
         if args.json:
             Path(args.json).write_text(json.dumps(report, indent=2) + "\n")
     elif args.command == "generate":

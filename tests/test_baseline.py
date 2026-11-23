@@ -93,7 +93,8 @@ def test_evaluate_reports_default_tuned_and_references(rows):
     report = evaluate(rows, CONFIG, k=10, grid=(0, 3, 30))
     assert [r["k"] for r in report["tuning"]] == [0, 3, 10, 30]
     assert report["default"]["k"] == 10
-    assert report["tuned"]["mae"] == min(r["mae"] for r in report["tuning"])
+    deviances = [r["poisson_deviance"] for r in report["tuning"]]
+    assert report["tuned"]["poisson_deviance"] == min(deviances)
     assert set(report["references"]) == {"train_mean", "train_median"}
     assert (
         sum(level["links"] for level in report["by_level_tuned"].values())
