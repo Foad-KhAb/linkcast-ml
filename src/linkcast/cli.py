@@ -10,6 +10,8 @@ from linkcast import __version__
 from linkcast.baseline import DEFAULT_K, K_GRID
 from linkcast.baseline import evaluate as evaluate_baseline
 from linkcast.baseline import format_report as format_baseline
+from linkcast.evaluate import evaluate as evaluate_test
+from linkcast.evaluate import format_report as format_evaluation
 from linkcast.generate import GeneratorConfig, write
 from linkcast.generate import generate as generate_data
 from linkcast.inspection import format_report, has_failures, inspect_rows
@@ -92,6 +94,12 @@ def main() -> None:
     train.add_argument("dataset", help="Path to the JSONL file")
     train.add_argument("--json", help="Also write the report as JSON")
     _add_split_dates(train)
+    evaluate = commands.add_parser(
+        "evaluate", help="Refit chosen models and score the test split once"
+    )
+    evaluate.add_argument("dataset", help="Path to the JSONL file")
+    evaluate.add_argument("--json", help="Also write the report as JSON")
+    _add_split_dates(evaluate)
     generate = commands.add_parser(
         "generate", help="Generate deterministic fictional source data and link rows"
     )
@@ -154,6 +162,16 @@ def main() -> None:
             parser.exit(2, f"Training failed: {error}\n")
         report = evaluate_model(rows, config)
         print(format_model_report(report))
+        if args.json:
+            Path(args.json).write_text(json.dumps(report, indent=2) + "\n")
+    elif args.command == "evaluate":
+        try:
+            rows = read_dataset(args.dataset)
+            config = SplitConfig(args.train_cutoff, args.validation_end, args.test_end)
+            report = evaluate_test(rows, config)
+        except (OSError, SchemaError, ValueError) as error:
+            parser.exit(2, f"Evaluation failed: {error}\n")
+        print(format_evaluation(report))
         if args.json:
             Path(args.json).write_text(json.dumps(report, indent=2) + "\n")
     elif args.command == "generate":

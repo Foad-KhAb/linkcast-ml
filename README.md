@@ -9,9 +9,9 @@ A prediction may be fractional because it represents an expected count.
 Implemented so far: standalone package and environment, versioned link
 dataset contract, validation CLI, fictional example rows, a deterministic
 synthetic data generator, dataset inspection report, chronological splits, a
-historical-mean baseline, a CatBoost count model compared on validation, and
-tests. Final test evaluation, saved models, and prediction are not implemented
-yet.
+historical-mean baseline, a CatBoost count model compared on validation, a
+final test evaluation, and tests. Saved models and single-link prediction are
+not implemented yet.
 
 ## Install and run
 
@@ -207,3 +207,24 @@ validation Poisson deviance. Identity fields are categorical; unknown
 categories become an explicit missing category and unknown numbers stay
 missing. The report compares both models with the baseline and lists feature
 importances. The test split is not read. A run takes about a minute on a CPU.
+
+## Final evaluation
+
+```sh
+uv run --locked linkcast evaluate data/synthetic/link_rows.jsonl
+```
+
+Every choice is made on validation first: the baseline's `k`, each CatBoost
+feature set's settings and number of trees, and the chosen CatBoost model
+(lowest validation Poisson deviance). The baseline and both CatBoost models are
+then refit on the final training set and scored once on the test split. Test
+labels are used only for scoring. The report shows:
+
+- overall test scores for each model;
+- scores for test links whose store, media, campaign, or creative is new or
+  known to the final training set;
+- mean predicted vs mean actual conversions in five bands of the chosen model's
+  predictions, which checks whether predicted averages are right in each range.
+
+No calibration correction is applied; bias is reported as observed. The run
+takes about a minute on a CPU.
