@@ -8,8 +8,8 @@ A prediction may be fractional because it represents an expected count.
 
 Implemented so far: standalone package and environment, versioned link
 dataset contract, validation CLI, fictional example rows, a deterministic
-synthetic data generator, and tests. Training, evaluation, and prediction are
-not implemented yet.
+synthetic data generator, dataset inspection report, and tests. Training,
+evaluation, and prediction are not implemented yet.
 
 ## Install and run
 
@@ -38,9 +38,9 @@ uv run --locked python -c "import linkcast, catboost, numpy, pandas, sklearn; pr
 ## Layout
 
 ```text
-src/linkcast/      Reusable package, schema, generator, and CLI
+src/linkcast/      Reusable package, schema, generator, inspection, and CLI
 examples/         Hand-written fictional schema examples
-tests/            Schema, generator, and CLI checks
+tests/            Schema, generator, inspection, and CLI checks
 pyproject.toml    Package metadata, dependencies, and tool settings
 uv.lock           Exact dependency resolution
 .python-version   Python version for the local environment
@@ -108,3 +108,24 @@ zero or a few conversions and a few get many. Some post views are unmeasured,
 some links have tracking outages or unverified coverage (label `unknown`), and
 recent links remain `pending` with partial counts. Synthetic results show that
 the pipeline behaves correctly; they say nothing about real business value.
+
+## Inspecting a dataset
+
+```sh
+uv run --locked linkcast inspect data/synthetic/link_rows.jsonl
+uv run --locked linkcast inspect data/synthetic/link_rows.jsonl --json report.json
+```
+
+Run this before splitting or training. The report shows:
+
+- label status per creation month, and the first day whose labels are mostly
+  still pending (the latest usable training data ends before it);
+- the ready target's mean, variance, zero share, and upper quantiles;
+- missing-value shares per feature and month;
+- stores, media, campaigns, and creatives first seen each month;
+- checks: model inputs exclude labels and audit fields, feature timestamps
+  precede creation, one snapshot time, no stale pending labels, unknown-label
+  share, constant features, and month-to-month missingness shifts.
+
+Failing checks make the command exit with status 1; warnings are for review.
+The report reads only link rows, never `truth/`.

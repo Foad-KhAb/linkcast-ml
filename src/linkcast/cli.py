@@ -1,11 +1,14 @@
 """Command-line entry point for LinkCast."""
 
 import argparse
+import json
 from collections import Counter
+from pathlib import Path
 
 from linkcast import __version__
 from linkcast.generate import GeneratorConfig, write
 from linkcast.generate import generate as generate_data
+from linkcast.inspection import format_report, has_failures, inspect_rows
 from linkcast.schema import SCHEMA_VERSION, SchemaError, read_dataset
 
 
@@ -20,6 +23,11 @@ def main() -> None:
         "validate", help="Validate a schema-v1 JSONL dataset"
     )
     validate.add_argument("dataset", help="Path to the JSONL file")
+    inspect = commands.add_parser(
+        "inspect", help="Report label maturity, target, missingness, and checks"
+    )
+    inspect.add_argument("dataset", help="Path to the JSONL file")
+    inspect.add_argument("--json", help="Also write the full report as JSON")
     generate = commands.add_parser(
         "generate", help="Generate deterministic fictional source data and link rows"
     )
@@ -39,6 +47,17 @@ def main() -> None:
             f"Labels: {counts['ready']} ready, {counts['pending']} pending, "
             f"{counts['unknown']} unknown"
         )
+    elif args.command == "inspect":
+        try:
+            rows = read_dataset(args.dataset)
+        except (OSError, SchemaError) as error:
+            parser.exit(2, f"Validation failed: {error}\n")
+        report = inspect_rows(rows)
+        print(format_report(report))
+        if args.json:
+            Path(args.json).write_text(json.dumps(report, indent=2) + "\n")
+        if has_failures(report):
+            parser.exit(1, "Inspection found failing checks\n")
     elif args.command == "generate":
         try:
             config = GeneratorConfig(seed=args.seed, days=args.days, n_media=args.media)
